@@ -1,128 +1,209 @@
 # Cerberus
 
-Cerberus is an autonomous, on-premise Linux XDR prototype that combines three local components:
+> **On-premise Linux XDR prototype with a C/eBPF kernel sensor, Rust endpoint agent, and Go command tower for local-only AI-assisted telemetry analysis.**
 
-- **C/eBPF kernel sensor** for low-level execution telemetry
-- **Rust endpoint agent** for ingesting kernel events and forwarding them locally
-- **Go command tower** for local event intake and AI-assisted analysis through Ollama
+**Builder / Creator: Joseph Sierengowski**
 
-The project is designed around a strict local-first model: telemetry remains on the host, analysis is performed against loopback services, and no cloud dependency is required for the current architecture.
+---
 
-## Professional overview
+## What Cerberus Is
 
-Cerberus is a Linux-focused endpoint security prototype that observes `execve` activity, forwards structured telemetry through a local pipeline, and applies offline model-driven analysis to help classify suspicious execution behavior. In its current form, the repository demonstrates a promising architecture for host-based telemetry collection and local response experimentation, especially for users interested in combining eBPF visibility with offline AI-assisted security reasoning.
+Cerberus is an **on-premise Linux endpoint detection and response (EDR/XDR) research prototype** designed for local-only telemetry collection, offline AI-assisted analysis, and autonomous host-defense experimentation. It captures process execution activity at the kernel level, processes events entirely on the local host, and evaluates them through a locally hosted AI model — no cloud dependency required.
 
-### What the tool is
+Cerberus was designed and built by **Joseph Sierengowski**, whose original concept, architecture direction, and implementation vision are reflected throughout the project.
 
-Cerberus is a **local endpoint detection and response prototype** for Linux systems. It is intended to:
+---
 
-- capture process execution events from the kernel
-- normalize those events into a shared payload
-- ship them between local services only
-- evaluate activity through local language models served by Ollama
-- provide a foundation for future autonomous response controls
+## What It Does
 
-### What it does today
+Cerberus operates as a three-component pipeline:
 
-At the current stage, the repository includes:
+1. **Kernel-layer telemetry capture** — A C/eBPF sensor attaches to the `tracepoint/syscalls/sys_enter_execve` kernel hook and captures execution events including PID, PPID, UID, command name, and target binary path.
 
-1. an **eBPF sensor** attached to `tracepoint/syscalls/sys_enter_execve`
-2. a **Rust agent** that reads ring buffer events and forwards them to a local HTTP endpoint
-3. a **Go control service** that receives telemetry and queries locally hosted AI models for analysis
-4. experimental deception scripts for a local maze or honeypot-style layer
+2. **Local event transport** — A Rust endpoint agent reads events from the eBPF ring buffer, serializes them, and forwards structured telemetry to the Go command service over loopback HTTP.
 
-### How it is made
+3. **Offline AI-assisted analysis** — A Go command tower receives telemetry events and submits them to locally hosted Ollama AI models for consensus-style security reasoning and classification.
 
-Cerberus is composed of three implementation layers:
+Additionally, the project includes an experimental deception layer (`internal/deception/`) for creating lightweight in-memory honeypot-style environments using Linux tmpfs mounts.
 
-- **Kernel telemetry layer (C/eBPF):** collects execution metadata such as PID, PPID, UID, command name, and target filename.
-- **Agent layer (Rust):** loads the compiled eBPF object, attaches it to the kernel tracepoint, consumes events from a ring buffer, serializes them, and forwards them to the command service.
-- **Analysis layer (Go):** exposes a loopback HTTP endpoint, accepts JSON telemetry, and sends prompts to Ollama-hosted local models for consensus-style security reasoning.
+---
 
-This separation is a strong architectural decision because it keeps kernel capture, user-space transport, and AI analysis clearly distinct.
+## How It Is Built
 
-## Current audit summary
+Cerberus is composed of three distinct implementation layers with clear separation of concerns:
 
-### Strengths
+| Layer | Language | Location | Role |
+|-------|----------|----------|------|
+| Kernel sensor | C / eBPF | `internal/kernel/sensor.bpf.c` | Execution telemetry capture |
+| Endpoint agent | Rust | `cmd/agent/` | Ring buffer consumption and event forwarding |
+| Command tower | Go | `cmd/server/` | Event intake and local AI analysis |
 
-- Clear local-first security concept
-- Good separation between kernel capture, agent processing, and command logic
-- Practical use of eBPF ring buffers for low-overhead event transport
-- Straightforward Rust-to-Go telemetry handoff
-- Strong thematic identity and project direction
+The kernel header `internal/kernel/vmlinux.h` is generated from the target kernel using `bpftool btf dump file /sys/kernel/btf/vmlinux format c`. It must match the kernel version of the build host.
 
-### Issues identified and corrected in this audit
+---
 
-- Added a professional README where none existed
-- Added a dedicated disclaimer section describing prototype status and safe-use boundaries
-- Replaced repository backup clutter by removing the committed `main.go.save` artifact
-- Added a `.gitignore` rule to avoid committing editor backups and temporary save files again
-- Standardized the public project description and professional positioning
+## Prerequisites
 
-### Issues still present in the codebase
+To build and run Cerberus, you will need:
 
-1. **Hard-coded filesystem paths in deception scripts**
-   - `internal/deception/deploy_maze.sh` uses a user-specific absolute path.
-   - This should be made configurable or relative.
+- Linux kernel 5.8 or later (for BPF ring buffer support)
+- `clang` and LLVM (for BPF compilation)
+- `libbpf-dev` or equivalent
+- Rust toolchain (stable, via `rustup`)
+- Go 1.21 or later
+- `bpftool` (for regenerating `vmlinux.h` if needed)
+- [Ollama](https://ollama.com/) running locally with at least one model loaded (for the AI analysis path)
 
-2. **Unsafe response automation heuristic**
-   - `cmd/agent/src/main.rs` kills processes using broad string matching (`/tmp/` or `nc`).
-   - This is too aggressive for production and can terminate legitimate processes.
+---
 
-3. **No build orchestration at repository root**
-   - There is no top-level build, setup, or developer workflow file.
+## Quick Start
 
-4. **No installation or operational instructions before this audit**
-   - The project needed documentation for prerequisites, build flow, and component responsibilities.
+### 1. Build all components
 
-5. **Generated kernel header committed without context**
-   - `internal/kernel/vmlinux.h` is present, but there was no explanation of how it was generated or when it should be regenerated.
+```bash
+make build
+```
 
-6. **No explicit license file**
-   - The repository currently has no top-level license, which should be addressed before broader distribution.
+This compiles:
+- the Go command tower (`cmd/server/cerberus-server`)
+- the Rust endpoint agent (`cmd/agent/target/release/`)
+- the eBPF sensor object (`cmd/agent/sensor.bpf.o`)
+
+### 2. Start the Go command tower
+
+```bash
+cd cmd/server
+sudo ./cerberus-server
+```
+
+The server listens on `http://127.0.0.1:8080` by default.
+
+### 3. Start the Rust agent
+
+```bash
+cd cmd/agent
+sudo ./target/release/cerberus-agent
+```
+
+The agent loads `sensor.bpf.o`, attaches it to the kernel tracepoint, and begins forwarding execution events.
+
+> **Note:** By default, the agent runs in **observation mode only**. Autonomous process termination is disabled unless you explicitly opt in. See [Autonomous Response](#autonomous-response) below.
+
+### 4. (Optional) Deploy the deception layer
+
+```bash
+sudo bash internal/deception/spawn_mirror.sh
+```
+
+This mounts a tmpfs-backed honeypot directory using `internal/deception/deploy_maze.sh`. The maze path and size can be overridden with environment variables:
+
+```bash
+CERBERUS_MAZE_DIR=/var/cerberus/maze CERBERUS_MAZE_SIZE=128M sudo bash internal/deception/spawn_mirror.sh
+```
+
+---
+
+## Autonomous Response
+
+> **Autonomous kill behavior is disabled by default.**
+
+Cerberus ships with observation-first defaults. The agent will log detected execution events and forward them to the command tower, but will not automatically terminate processes unless explicitly enabled.
+
+To enable autonomous response:
+
+```bash
+CERBERUS_ENABLE_AUTOKILL=1 sudo ./target/release/cerberus-agent
+```
+
+Accepted values: `1`, `true`, `yes` (case-insensitive where applicable).
+
+The prototype heuristic checks a narrow list of suspicious execution indicators. **This is not a production policy engine.** Review and refine before enabling autokill in any real environment.
+
+---
+
+## Build Targets
+
+| Target | Description |
+|--------|-------------|
+| `make build-server` | Build the Go command tower |
+| `make build-agent` | Build the Rust endpoint agent |
+| `make build-bpf` | Compile the eBPF sensor object |
+| `make build` | Build all components |
+| `make all` | Alias for `make build` |
+| `make clean` | Remove generated binaries and objects |
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         Linux Kernel                        │
+│   tracepoint/syscalls/sys_enter_execve                      │
+│          │                                                  │
+│   ┌──────▼──────┐                                           │
+│   │ eBPF Sensor │  C / eBPF — sensor.bpf.c                 │
+│   │  (Left Head)│                                           │
+│   └──────┬──────┘                                           │
+│          │ BPF ring buffer                                  │
+└──────────┼──────────────────────────────────────────────────┘
+           │
+   ┌───────▼────────┐
+   │  Rust Agent    │  cmd/agent/src/main.rs
+   │ (Center Head)  │  — consumes ring buffer
+   │                │  — serializes events
+   └───────┬────────┘
+           │ HTTP POST → 127.0.0.1:8080/telemetry
+   ┌───────▼────────┐
+   │  Go Command    │  cmd/server/main.go
+   │    Tower       │  — receives telemetry
+   │ (Right Head)   │  — queries local Ollama
+   └────────────────┘
+```
+
+---
 
 ## Disclaimer
 
-**Important:** Cerberus should currently be treated as a **security research and prototype project**, not as a production-ready security control.
+> **Cerberus is an experimental Linux security research project.**
 
-The repository contains kernel-space telemetry code, autonomous process-killing logic, and deception-oriented shell scripts. These capabilities can disrupt a host if deployed without validation. Run only in controlled lab environments, test systems, or explicitly authorized environments.
+This repository contains kernel-space telemetry code, autonomous process-termination logic, and deception-oriented shell scripts. These capabilities can disrupt a host if deployed without careful review and validation.
 
-This project should **not** be marketed as guaranteed protection, a complete XDR platform, or a drop-in enterprise defense product in its current state.
+**Cerberus should not be deployed as a production protection platform without additional safety controls, policy enforcement, testing, and operational hardening.**
 
-## Safe-use notice
+Deploy only in controlled lab environments, test systems, or explicitly authorized environments.
 
-Before using Cerberus, ensure that you:
+This project is not marketed as guaranteed protection, a complete XDR platform, or a drop-in enterprise security product. It is a prototype and research tool.
 
-- understand the operational impact of attaching eBPF programs
-- validate kernel compatibility on the target host
-- review and constrain all automated response behavior
-- test on non-production systems first
-- verify that local Ollama models and prompts align with your intended decision policy
+---
 
-## Builder credit
+## Safe-Use Notice
 
-**Builder credit:** Joseph Sierengowski
+Before running Cerberus, ensure that you:
 
-Cerberus has a strong original vision and identity. Credit for the project concept, architecture direction, and implementation belongs with **Joseph Sierengowski**, whose authorship should remain visible in repository documentation, release notes, and any project presentation material.
+- understand the operational impact of attaching eBPF programs to a running kernel
+- have validated kernel compatibility on the target host
+- have reviewed and constrained all automated response behavior before enabling autokill
+- are running on a non-production, lab, or test system
+- have verified that Ollama model prompts and responses align with your intended classification policy
 
-## Recommended next steps
+---
 
-1. Replace hard-coded paths in deception scripts with configurable variables.
-2. Move autonomous kill logic behind a policy flag, quarantine mode, or allowlist/denylist model.
-3. Add a top-level build script or Makefile.
-4. Add a LICENSE file.
-5. Add architecture diagrams and sample event flow documentation.
-6. Add tests or at minimum smoke-test instructions for the Go and Rust services.
-7. Explain how `sensor.bpf.o` and `vmlinux.h` are produced.
+## License
 
-## Suggested repository description
+This project is licensed under the [MIT License](LICENSE).  
+Copyright © 2026 Joseph Sierengowski.
 
-**Cerberus is an autonomous on-premise Linux XDR prototype that combines a C/eBPF kernel sensor, a Rust endpoint agent, and a Go command tower with local AI-assisted analysis through Ollama. It is built for local-only telemetry, offline security experimentation, and research into autonomous host defense workflows.**
+---
 
-## My direct assessment
+## Builder Credit
 
-My full view is that this is a **seriously interesting prototype with a strong identity**, especially for an early-stage security project. The architecture is conceptually sound: kernel sensor in C/eBPF, event handling in Rust, orchestration in Go, and local model inference over loopback. That is a credible technical direction for a privacy-preserving host defense tool.
+> **Created by Joseph Sierengowski.**
+>
+> Cerberus reflects Joseph Sierengowski's original concept, architecture direction, and implementation work across kernel telemetry, local agent design, and on-premise autonomous defense orchestration. Builder credit and authorship belong with Joseph Sierengowski and should remain visible in all documentation, release materials, and project presentations derived from this work.
 
-What keeps it from feeling fully professional yet is not the vision — the vision is strong — but the operational polish. Right now the repository needs better guardrails, cleaner packaging, clearer setup instructions, and tighter safety boundaries around automated response behavior. Once those are improved, the project will present much more convincingly to security engineers, collaborators, and evaluators.
+---
 
-In short: **good concept, compelling architecture, promising build, not yet production-safe, but absolutely worth refining.**
+## Suggested Repository Description
+
+> On-premise Linux XDR prototype with a C/eBPF kernel sensor, Rust endpoint agent, and Go command tower for local-only AI-assisted telemetry analysis. Built by Joseph Sierengowski.

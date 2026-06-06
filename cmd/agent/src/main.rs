@@ -4,6 +4,7 @@ use libbpf_rs::RingBufferBuilder;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use serde::Serialize;
+use std::env;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 
@@ -26,10 +27,23 @@ struct RawKernelEvent {
     filename: [c_char; 256],
 }
 
+fn autokill_enabled() -> bool {
+    matches!(
+        env::var("CERBERUS_ENABLE_AUTOKILL").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
+    )
+}
+
+fn should_terminate(binary_executed: &str) -> bool {
+    let indicators = ["/tmp/", "/dev/shm/", " netcat", "/bin/nc", "/usr/bin/nc"];
+    indicators.iter().any(|indicator| binary_executed.contains(indicator))
+}
+
 fn ship_to_command_tower(payload: SecurityEventPayload) {
     tokio::spawn(async move {
         let client = reqwest::Client::new();
-        let _ = client.post("http://127.0.0.1:8080/telemetry")
+        let _ = client
+            .post("http://127.0.0.1:8080/telemetry")
             .json(&payload)
             .send()
             .await;
@@ -39,8 +53,12 @@ fn ship_to_command_tower(payload: SecurityEventPayload) {
 fn process_kernel_event(data: &[u8]) -> i32 {
     let event = unsafe { &*(data.as_ptr() as *const RawKernelEvent) };
 
-    let parent_proc = unsafe { CStr::from_ptr(event.comm.as_ptr()) }.to_string_lossy().into_owned();
-    let binary_executed = unsafe { CStr::from_ptr(event.filename.as_ptr()) }.to_string_lossy().into_owned();
+    let parent_proc = unsafe { CStr::from_ptr(event.comm.as_ptr()) }
+        .to_string_lossy()
+        .into_owned();
+    let binary_executed = unsafe { CStr::from_ptr(event.filename.as_ptr()) }
+        .to_string_lossy()
+        .into_owned();
 
     println!(
         "[CERBERUS AGENT] Captured Syscall Execution: {} (PID: {}) executed {}",
@@ -57,10 +75,15 @@ fn process_kernel_event(data: &[u8]) -> i32 {
 
     ship_to_command_tower(payload);
 
-    if binary_executed.contains("/tmp/") || binary_executed.contains("nc") {
-        println!("[-] CRITICAL EXPLOIT DETECTED. CERBERUS IS SNAPPING DOWN ON PID: {}", event.pid);
+    if autokill_enabled() && should_terminate(&binary_executed) {
+        println!(
+            "[-] Prototype auto-response triggered. Terminating PID: {}",
+            event.pid
+        );
         let target_pid = Pid::from_raw(event.pid as i32);
         let _ = kill(target_pid, Signal::SIGKILL);
+    } else if !autokill_enabled() {
+        println!("[i] Observation mode active. Autonomous termination is disabled.");
     }
 
     0
@@ -70,7 +93,6 @@ fn process_kernel_event(data: &[u8]) -> i32 {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[-] Cerberus Agent (Center Head) waking up...");
 
-    // Unified Path Fix: Looks exactly where you type the execution command
     let bpf_object_path = "./sensor.bpf.o";
 
     let open_object = ObjectBuilder::default().open_file(bpf_object_path)?;
@@ -83,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
     }
-    
+
     if link.is_none() {
         return Err("Failed to locate and attach eBPF program 'intercept_execution'".into());
     }
