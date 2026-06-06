@@ -56,7 +56,40 @@ To build and run Cerberus, you will need:
 
 ---
 
-## Quick Start
+## One-Command Installation & Management
+
+To install, configure, persist, and run Cerberus with a single script, use the all-in-one download installer.
+
+### 1. Install & Launch Cerberus Services
+Run the installer script with root privileges:
+
+```bash
+sudo ./install.sh
+```
+
+This installer automatically:
+- Checks kernel compatibility and build tools
+- Auto-installs missing dependencies (via `apt` on Debian/Ubuntu systems)
+- Compiles the eBPF sensor, Go command tower, and Rust agent
+- Installs the binaries and deception scripts to `/usr/local/bin`
+- Installs and starts system-resilient, boot-persistent **systemd services** (`cerberus-server`, `cerberus-agent`, and `cerberus-deception`)
+
+### 2. Launch the Control TUI Menu
+Once installed, you can monitor and interact with the Cerberus ecosystem from any shell context using our dedicated Terminal User Interface:
+
+```bash
+cerberus-ctl
+```
+
+Inside the terminal menu, you can:
+- **View service status** for the server, agent, and deception maze
+- **Toggle autokill mode** on or off dynamically (which automatically updates the agent and reloads systemd)
+- **Tails live telemetry logs** from our JSON database
+- **Ask Cerberus Security AI** custom natural language questions (e.g., "Is the system running low on RAM?", "Summarize recent suspicious telemetry events", etc.) directly from your terminal.
+
+---
+
+## Quick Start (Manual Method)
 
 ### 1. Build all components
 
