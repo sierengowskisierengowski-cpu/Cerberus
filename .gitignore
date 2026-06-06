@@ -4,6 +4,10 @@ target/
 *.o
 *.so
 
+# Generated binaries
+cmd/server/cerberus-server
+cmd/agent/sensor.bpf.o
+
 # Block Tracking, Telemetry, and Sensor Logs
 *.log
 *gps*
