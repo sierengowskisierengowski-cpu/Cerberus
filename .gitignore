@@ -12,6 +12,11 @@ target/
 *.json
 *.txt
 
+# Editor backups and temporary save files
+*.save
+*.swp
+*~
+
 # Hidden Files and Environment Secrets
 .env
 .cache/
