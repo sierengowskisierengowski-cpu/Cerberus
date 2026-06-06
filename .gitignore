@@ -1,0 +1,19 @@
+# Target Build Outputs
+target/
+*-tower
+*.o
+*.so
+
+# Block Tracking, Telemetry, and Sensor Logs
+*.log
+*gps*
+*lora*
+*.csv
+*.json
+*.txt
+
+# Hidden Files and Environment Secrets
+.env
+.cache/
+.idea/
+.vscode/
