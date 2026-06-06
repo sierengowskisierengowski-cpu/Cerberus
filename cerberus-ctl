@@ -19,6 +19,17 @@ AGENT_SERVICE="cerberus-agent"
 DECEPTION_SERVICE="cerberus-deception"
 ENV_FILE="/etc/cerberus/agent.env"
 
+# Dependency Check
+if ! command -v curl &>/dev/null; then
+    echo -e "${RED}[!] Error: 'curl' is required for cerberus-ctl. Please install it.${NC}"
+    exit 1
+fi
+
+if ! command -v python3 &>/dev/null && ! command -v jq &>/dev/null; then
+    echo -e "${RED}[!] Error: 'python3' or 'jq' is required to parse JSON replies in cerberus-ctl.${NC}"
+    exit 1
+fi
+
 show_header() {
     clear
     echo -e "${CYAN}${BOLD}"
@@ -147,7 +158,18 @@ view_logs() {
     echo -e "${BOLD}--- REAL-TIME TELEMETRY LOGS (Press Ctrl+C to exit) ---${NC}"
     echo ""
     if [ -f "/var/log/cerberus/telemetry.json" ]; then
-        sudo tail -n 20 -f "/var/log/cerberus/telemetry.json" 2>/dev/null || sudo journalctl -u "$AGENT_SERVICE" -n 20 -f
+        echo -e "${YELLOW}[i] Tailing formatted JSONL telemetry database...${NC}\n"
+        sudo tail -n 20 -f "/var/log/cerberus/telemetry.json" 2>/dev/null | python3 -c '
+import sys, json
+for line in sys.stdin:
+    try:
+        data = json.loads(line.strip())
+        print(f"\033[36m[{data.get(\"timestamp\", \"\")}]\033[0m \033[1mPID: {data.get(\"pid\", \"\")}\033[0m Executed: \033[32m{data.get(\"binary_executed\", \"\")}\033[0m (Parent: {data.get(\"parent_process\", \"\")})")
+        sys.stdout.flush()
+    except Exception:
+        print(line.strip())
+        sys.stdout.flush()
+' 2>/dev/null || sudo journalctl -u "$AGENT_SERVICE" -n 20 -f
     else
         echo "No persistent telemetry.json found yet. Tailing journald logs..."
         sudo journalctl -u "$AGENT_SERVICE" -n 20 -f

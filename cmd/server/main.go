@@ -16,8 +16,9 @@ import (
 
 // Configure the Two-Model Local Consensus Network
 const (
-	AnalyzerBrain  = "gemma2:2b"     // Google's code-syntax expert
-	CommanderBrain = "granite3.3:2b" // IBM's security decision engine
+	AnalyzerBrain   = "gemma2:2b"     // Google's code-syntax expert
+	CommanderBrain  = "granite3.3:2b" // IBM's security decision engine
+	MaxInMemoryLogs = 50             // Max number of recent telemetry events to keep in-memory
 )
 
 type SecurityLog struct {
@@ -56,9 +57,10 @@ type AskResponse struct {
 }
 
 var (
-	recentLogs      []SecurityLogWithTime
-	recentLogsMutex sync.Mutex
-	logFilePath     = "/var/log/cerberus/telemetry.json"
+	recentLogs           []SecurityLogWithTime
+	recentLogsMutex      sync.Mutex
+	logFilePath          = "/var/log/cerberus/telemetry.json"
+	SuspiciousIndicators = []string{"/tmp/", "/dev/shm/", " netcat", "/bin/nc", "/usr/bin/nc"} // Aligned with rust agent heuristics
 )
 
 func logTelemetryEvent(secLog SecurityLog) {
@@ -73,7 +75,7 @@ func logTelemetryEvent(secLog SecurityLog) {
 
 	recentLogsMutex.Lock()
 	recentLogs = append(recentLogs, logWithTime)
-	if len(recentLogs) > 50 {
+	if len(recentLogs) > MaxInMemoryLogs {
 		recentLogs = recentLogs[1:] // Limit in-memory size
 	}
 	recentLogsMutex.Unlock()
@@ -203,8 +205,7 @@ func RunConsensusLoop(secLog SecurityLog) {
 	if err != nil {
 		log.Printf("[!] Phase 2 (Granite) Failed: %v. Using simulated fallback.", err)
 		suspicious := false
-		indicators := []string{"/tmp/", "/dev/shm/", " netcat", "/bin/nc", "/usr/bin/nc"}
-		for _, ind := range indicators {
+		for _, ind := range SuspiciousIndicators {
 			if strings.Contains(secLog.BinaryExecuted, ind) {
 				suspicious = true
 				break

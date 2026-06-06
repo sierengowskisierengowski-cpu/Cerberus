@@ -78,12 +78,13 @@ echo -e "${GREEN}[+] Compilation complete.${NC}"
 
 echo -e "\n${YELLOW}[*] Step 4: Installing binaries and assets to standard paths...${NC}"
 mkdir -p /usr/local/bin
+mkdir -p /usr/local/lib/cerberus
 mkdir -p /var/log/cerberus
 mkdir -p /etc/cerberus
 
 cp cmd/server/cerberus-server /usr/local/bin/cerberus-server
 cp cmd/agent/target/release/cerberus-agent /usr/local/bin/cerberus-agent
-cp cmd/agent/sensor.bpf.o /usr/local/bin/sensor.bpf.o
+cp cmd/agent/sensor.bpf.o /usr/local/lib/cerberus/sensor.bpf.o
 cp internal/deception/deploy_maze.sh /usr/local/bin/deploy_maze.sh
 cp internal/deception/spawn_mirror.sh /usr/local/bin/spawn_mirror.sh
 cp cerberus-ctl /usr/local/bin/cerberus-ctl
@@ -130,7 +131,7 @@ Requires=cerberus-server.service
 
 [Service]
 Type=simple
-WorkingDirectory=/usr/local/bin
+WorkingDirectory=/usr/local/lib/cerberus
 EnvironmentFile=-/etc/cerberus/agent.env
 ExecStart=/usr/local/bin/cerberus-agent
 Restart=always
